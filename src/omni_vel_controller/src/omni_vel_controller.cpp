@@ -29,6 +29,7 @@ namespace omni_vel_controller
             auto_declare<bool>("DeadMiss_event",false);
             auto_declare<bool>("call_dm",false);
             auto_declare<bool>("pub_odom",false);
+            auto_declare<bool>("sim",false);
         }
          catch(const std::exception & e)
         {
@@ -50,7 +51,7 @@ namespace omni_vel_controller
         ma = get_node()->get_parameter("mecanum_angle").as_double() *(M_PI/180.0);
         wr = get_node()->get_parameter("wheel_rad").as_double();
         odom_flag_ = get_node()->get_parameter("pub_odom").as_bool();
-
+        sim_flag_ = get_node()->get_parameter("sim").as_bool();
         milliseconds dur{get_node()->get_parameter("input_frequency").as_int() + 5};
         deadmis_to_ = dur;
 
@@ -112,7 +113,7 @@ namespace omni_vel_controller
         in_qos.deadline(deadmis_to_);
         rclcpp::SubscriptionOptions sub_opt;
         sub_opt.event_callbacks.deadline_callback = 
-        [this](rclcpp::QOSDeadlineRequestedInfo & event) 
+        [this](rclcpp::QOSDeadlineRequestedInfo & ) 
         {
             this->dl_miss_count_ ++;
             if(dl_miss_count_ > 10)
@@ -139,13 +140,11 @@ namespace omni_vel_controller
 
 
         homing_serv_ = get_node()->create_service<TransactionService>("~/homing_srv",
-        std::bind(&Omni_Vel_Controller::homing_start_srv,this,std::placeholders::_1,std::placeholders::_2),
-        srvs_qos.get_rmw_qos_profile()
+        std::bind(&Omni_Vel_Controller::homing_start_srv,this,std::placeholders::_1,std::placeholders::_2)
         );
 
         emergency_serv_ = get_node()->create_service<TransactionService>("~/emergency_srv",
-        std::bind(&Omni_Vel_Controller::emergency_srv,this,std::placeholders::_1,std::placeholders::_2),
-        srvs_qos.get_rmw_qos_profile()
+        std::bind(&Omni_Vel_Controller::emergency_srv,this,std::placeholders::_1,std::placeholders::_2)
         );
         RCLCPP_INFO(get_node()->get_logger(),"configure succesfully");
         return CallbackReturn::SUCCESS;
@@ -185,11 +184,16 @@ namespace omni_vel_controller
         cmd_int_cnf.type = controller_interface::interface_configuration_type::INDIVIDUAL;
         for(auto &it : wheels_name_)
         {
-            cmd_int_cnf.names.push_back(it + "/" + hardware_interface::HW_IF_POSITION);
+            
             cmd_int_cnf.names.push_back(it + "/" + hardware_interface::HW_IF_VELOCITY);
-            cmd_int_cnf.names.push_back(it + "/" + hardware_interface::HW_IF_EFFORT);
-            cmd_int_cnf.names.push_back(it + "/" + "kp_scale_value");
-            cmd_int_cnf.names.push_back(it + "/" + "kd_scale_value");
+            
+            if(!sim_flag_)
+            {
+                cmd_int_cnf.names.push_back(it + "/" + hardware_interface::HW_IF_POSITION);
+                cmd_int_cnf.names.push_back(it + "/" + hardware_interface::HW_IF_EFFORT);
+                cmd_int_cnf.names.push_back(it + "/" + "kp_scale_value");
+                cmd_int_cnf.names.push_back(it + "/" + "kd_scale_value");
+            }
         }
         return cmd_int_cnf;
     }

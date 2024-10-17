@@ -86,14 +86,20 @@ namespace omni_vel_controller
             }
             void set_cmd2jnt()
             {
-                
+                int int_n = sim_flag_?1:5;
+
                 for(size_t i = 0 ; i < wheels_name_.size(); i++)
                 {
-                    command_interfaces_[5 * i].set_value(joint_cmd_.position[i]);
-                    command_interfaces_[5 * i + 1].set_value(joint_cmd_.velocity[i]);
-                    command_interfaces_[5 * i + 2].set_value(0.0);
-                    command_interfaces_[5 * i + 3].set_value(0.0);
-                    command_interfaces_[5 * i + 4].set_value(1.0);
+                    
+                    command_interfaces_[int_n * i].set_value(joint_cmd_.velocity[i]);
+                    
+                    if(!sim_flag_)
+                    {
+                        command_interfaces_[int_n * i + 1].set_value(joint_cmd_.position[i]);
+                        command_interfaces_[int_n * i + 2].set_value(0.0);
+                        command_interfaces_[int_n * i + 3].set_value(0.0);
+                        command_interfaces_[int_n * i + 4].set_value(1.0);
+                    }
                 }
             }
             void set_cmd(double base_vel[3])
@@ -106,11 +112,16 @@ namespace omni_vel_controller
                     {
                       w_v += base2Wheel_matrix_[i][j]*base_vel[j];
                     }
-                    joint_cmd_.position[i] = std::nan("1");
+                    
                     joint_cmd_.velocity[i] = w_v;
-                    joint_cmd_.effort[i] = 0.0;
-                    joint_cmd_.kp_scale[i] = 1.0;
-                    joint_cmd_.kd_scale[i] = 1.0;
+                    
+                    if(!sim_flag_)
+                    {
+                        joint_cmd_.position[i] = std::nan("1");
+                        joint_cmd_.effort[i] = 0.0;
+                        joint_cmd_.kp_scale[i] = 1.0;
+                        joint_cmd_.kd_scale[i] = 1.0;
+                    }
                 }
             }
 
@@ -171,8 +182,8 @@ namespace omni_vel_controller
             duration<double,std::milli> deadmis_to_;
             Controller_State c_stt_ = Controller_State::INACTIVE;
             int dl_miss_count_ = 0;
-            bool odom_flag_;
-            std::vector<std::string> wheels_name_ = {"RF_WHEEL","LF_WHEEL","LH_WHEEL","RH_WHEEL"};
+            bool odom_flag_,sim_flag_;
+            std::vector<std::string> wheels_name_ = {"RF_WHEEL_JNT","LF_WHEEL_JNT","LH_WHEEL_JNT","RH_WHEEL_JNT"};
             geometry_msgs::msg::TwistStamped odom_msg_;
            
             rclcpp::Service<TransactionService>::SharedPtr homing_serv_,emergency_serv_;
