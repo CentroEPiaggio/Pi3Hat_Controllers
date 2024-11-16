@@ -57,21 +57,21 @@ namespace omni_vel_controller
 
         // fill base to wheel kin matrix
 
-        base2Wheel_matrix_[0][0] = 1.0/wr;
-        base2Wheel_matrix_[0][1] = 1.0/wr;
+        base2Wheel_matrix_[0][0] = -1.0/wr;
+        base2Wheel_matrix_[0][1] = -1.0/wr;
         base2Wheel_matrix_[0][2] = -(ds_x - ds_y*(1/std::tan(ma)))/wr;
         
 
-        base2Wheel_matrix_[1][0] = -1.0/wr;
-        base2Wheel_matrix_[1][1] = 1.0/wr;
+        base2Wheel_matrix_[1][0] = 1.0/wr;
+        base2Wheel_matrix_[1][1] = -1.0/wr;
         base2Wheel_matrix_[1][2] = -(ds_x - ds_y*(1/std::tan(ma)))/wr;
 
-        base2Wheel_matrix_[2][0] = -1.0/wr;
-        base2Wheel_matrix_[2][1] = -1.0/wr;
+        base2Wheel_matrix_[2][0] = 1.0/wr;
+        base2Wheel_matrix_[2][1] = 1.0/wr;
         base2Wheel_matrix_[2][2] = -(ds_x - ds_y*(1/std::tan(ma)))/wr;
 
-        base2Wheel_matrix_[3][0] = 1.0/wr;
-        base2Wheel_matrix_[3][1] = -1.0/wr;
+        base2Wheel_matrix_[3][0] = -1.0/wr;
+        base2Wheel_matrix_[3][1] = 1.0/wr;
         base2Wheel_matrix_[3][2] = -(ds_x - ds_y*(1/std::tan(ma)))/wr;
 
         odom_matrix_[0][0] = (wr /4);
