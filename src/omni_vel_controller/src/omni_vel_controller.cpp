@@ -16,7 +16,7 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 namespace omni_vel_controller
 {
-    CallbackReturn Omni_Vel_Controller::on_init()
+    CallbackReturn OmniVelController::on_init()
     {
         try
         {
@@ -40,7 +40,7 @@ namespace omni_vel_controller
         RCLCPP_INFO(get_node()->get_logger(),"initialize succesfully");
         return CallbackReturn::SUCCESS;
     };
-    CallbackReturn Omni_Vel_Controller::on_configure(const rclcpp_lifecycle::State & )
+    CallbackReturn OmniVelController::on_configure(const rclcpp_lifecycle::State & )
     {
         
         double ds_y,ds_x,ma,wr;
@@ -128,7 +128,7 @@ namespace omni_vel_controller
             "~/command",
             in_qos,
             std::bind(
-                &Omni_Vel_Controller::cmd_callback,this,std::placeholders::_1),sub_opt);
+                &OmniVelController::cmd_callback,this,std::placeholders::_1),sub_opt);
 
         joints_cmd_pub_ = get_node()->create_publisher<SttMsg>("~/joints_reference",out_qos);
         if(odom_flag_)
@@ -140,34 +140,34 @@ namespace omni_vel_controller
 
 
         homing_serv_ = get_node()->create_service<TransactionService>("~/homing_srv",
-        std::bind(&Omni_Vel_Controller::homing_start_srv,this,std::placeholders::_1,std::placeholders::_2)
+        std::bind(&OmniVelController::homing_start_srv,this,std::placeholders::_1,std::placeholders::_2)
         );
 
         emergency_serv_ = get_node()->create_service<TransactionService>("~/emergency_srv",
-        std::bind(&Omni_Vel_Controller::emergency_srv,this,std::placeholders::_1,std::placeholders::_2)
+        std::bind(&OmniVelController::emergency_srv,this,std::placeholders::_1,std::placeholders::_2)
         );
         RCLCPP_INFO(get_node()->get_logger(),"configure succesfully");
         return CallbackReturn::SUCCESS;
     }
 
 
-    CallbackReturn Omni_Vel_Controller::on_activate(const rclcpp_lifecycle::State & )
+    CallbackReturn OmniVelController::on_activate(const rclcpp_lifecycle::State & )
     {
        
         return CallbackReturn::SUCCESS;
     }
 
-    CallbackReturn Omni_Vel_Controller::on_deactivate(const rclcpp_lifecycle::State & )
+    CallbackReturn OmniVelController::on_deactivate(const rclcpp_lifecycle::State & )
     {
         return CallbackReturn::SUCCESS;
     }
 
-    CallbackReturn Omni_Vel_Controller::on_cleanup(const rclcpp_lifecycle::State &)
+    CallbackReturn OmniVelController::on_cleanup(const rclcpp_lifecycle::State &)
     {
         return CallbackReturn::SUCCESS;
     }
 
-   controller_interface::InterfaceConfiguration Omni_Vel_Controller::state_interface_configuration() const
+   controller_interface::InterfaceConfiguration OmniVelController::state_interface_configuration() const
     {
         controller_interface::InterfaceConfiguration stt_int_cnf;
         stt_int_cnf.type = controller_interface::interface_configuration_type::INDIVIDUAL;
@@ -178,7 +178,7 @@ namespace omni_vel_controller
         return stt_int_cnf;
     }
 
-    controller_interface::InterfaceConfiguration Omni_Vel_Controller::command_interface_configuration() const
+    controller_interface::InterfaceConfiguration OmniVelController::command_interface_configuration() const
     {
         controller_interface::InterfaceConfiguration cmd_int_cnf;
         cmd_int_cnf.type = controller_interface::interface_configuration_type::INDIVIDUAL;
@@ -198,7 +198,7 @@ namespace omni_vel_controller
         return cmd_int_cnf;
     }
 
-    controller_interface::return_type Omni_Vel_Controller::update(
+    controller_interface::return_type OmniVelController::update(
                 const rclcpp::Time & time, const rclcpp::Duration & 
             )
     {
@@ -248,7 +248,7 @@ namespace omni_vel_controller
         return controller_interface::return_type::OK;
     }
     
-	void    Omni_Vel_Controller::omni_fk()
+	void    OmniVelController::omni_fk()
     {
         for( int i = 0; i < 3; i++)
         {
@@ -262,5 +262,5 @@ namespace omni_vel_controller
 
 }; // namespace name
 PLUGINLIB_EXPORT_CLASS(
-    omni_vel_controller::Omni_Vel_Controller, controller_interface::ControllerInterface
+    omni_vel_controller::OmniVelController, controller_interface::ControllerInterface
 );

@@ -42,11 +42,11 @@ namespace omni_vel_controller
     using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
     using TransactionService = std_srvs::srv::SetBool;
 
-    class Omni_Vel_Controller : public controller_interface::ControllerInterface
+    class OmniVelController : public controller_interface::ControllerInterface
     {   
         public:
-            Omni_Vel_Controller(){};
-            ~Omni_Vel_Controller(){};
+            OmniVelController(){};
+            ~OmniVelController(){};
 
             
             CallbackReturn on_init() override;
