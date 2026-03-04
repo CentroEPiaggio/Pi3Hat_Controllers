@@ -16,7 +16,7 @@ find_package(pi3hat_moteus_int_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-
+find_package(Eigen3 REQUIRED)
 
 add_library(
   ${PROJECT_NAME}
@@ -24,6 +24,7 @@ add_library(
 )
 target_include_directories(
   ${PROJECT_NAME} PRIVATE include
+  ${EIGEN3_INCLUDE_DIR}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -37,6 +38,7 @@ ament_target_dependencies(${PROJECT_NAME}
   pi3hat_moteus_int_msgs
   std_srvs
   geometry_msgs
+  Eigen3
 )
 
 pluginlib_export_plugin_description_file(controller_interface omni_vel_controller.xml)
