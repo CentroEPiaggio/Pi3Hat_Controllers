@@ -153,7 +153,8 @@ namespace pi3hat_vel_controller
                                                     "RF_WHEEL","LF_WHEEL",
                                                     "LH_WHEEL","RH_WHEEL"}; 
             double init_x_displacement_,init_height_,min_height_,max_height_, act_height_,rf_hfe_hom_,rf_kfe_hom_,rh_hfe_hom_,rh_kfe_hom_;
-            
+            double hfe_crouched_offset_;  // offset hip
+            double kfe_crouched_offset_;  // offset knee
     };
 };
 

@@ -9,11 +9,11 @@
 #include <cmath>
 namespace pi3hat_vel_controller
 {
-    
+    // COSTRUTTORE
     Pi3Hat_Vel_Controller::Pi3Hat_Vel_Controller():
     logger_name_("Pi3Hat_Vel_Controller"),
     //rt_buffer_(nullptr),
-    vel_target_rcvd_msg_(make_shared<CmdMsgs>())
+    vel_target_rcvd_msg_(make_shared<CmdMsgs>()) // STRUTTURA PER SALVARE ULTIMO COMANDO DI VELOCITÀ
     //prova
     {}
 
@@ -33,9 +33,11 @@ namespace pi3hat_vel_controller
         	auto_declare<double>("wheel_rad",0.05);
             auto_declare<double>("init_height",-0.15);
             auto_declare<double>("init_x_displacement",0.0);
-            auto_declare<double>("max_heigth",-0.37);
+            auto_declare<double>("max_height",-0.37);
             auto_declare<double>("min_height",-0.15);
             auto_declare<int>("feet_type",2);
+            auto_declare<double>("hfe_crouched_offset", 0.0);
+            auto_declare<double>("kfe_crouched_offset", 0.0);
         }
          catch(const std::exception & e)
         {
@@ -47,21 +49,21 @@ namespace pi3hat_vel_controller
         return CallbackReturn::SUCCESS;
     }
 
-    CallbackReturn Pi3Hat_Vel_Controller::on_configure(const rclcpp_lifecycle::State &)
+    CallbackReturn Pi3Hat_Vel_Controller::on_configure(const rclcpp_lifecycle::State &) //
     {
         std::vector<double> init_positions;
         rclcpp::QoS sub_qos(10);
         rclcpp::SubscriptionOptions sub_opt;
         size_t sz;
         // get the controlled joints name
-        a_ = get_node()->get_parameter("driveshaft_y").as_double();
+        a_ = get_node()->get_parameter("driveshaft_y").as_double(); // LETTURA PAARAMETRI  GEOMETRI ROBOT
         b_ = get_node()->get_parameter("driveshaft_x").as_double();
         alpha_ = get_node()->get_parameter("mecanum_angle").as_double() *(M_PI/180.0);
 	    r_ = get_node()->get_parameter("wheel_rad").as_double();
 	    feet_type_ = get_node()->get_parameter("feet_type").as_int();
         init_height_ = get_node()->get_parameter("init_height").as_double();
         init_x_displacement_ = get_node()->get_parameter("init_x_displacement").as_double();
-        max_height_ = get_node()->get_parameter("max_heigth").as_double();
+        max_height_ = get_node()->get_parameter("max_height").as_double();
         min_height_ = get_node()->get_parameter("min_height").as_double();
         std::chrono::duration dur = std::chrono::milliseconds(get_node()->get_parameter("input_frequency").as_int());
         act_height_ = init_height_;
@@ -70,10 +72,19 @@ namespace pi3hat_vel_controller
         homing_dur_ = get_node()->get_parameter("homing_duration").as_double();
         RCLCPP_INFO(get_node()->get_logger(),"homing dur is  %f",homing_dur_);
 
+        // ---- NUOVO: leggi offset posa rannicchiata ----
+        hfe_crouched_offset_ = get_node()->get_parameter("hfe_crouched_offset").as_double();
+        kfe_crouched_offset_ = get_node()->get_parameter("kfe_crouched_offset").as_double();
+        RCLCPP_INFO(get_node()->get_logger(),"crouched offsets — hfe: %.4f  kfe: %.4f",
+                    hfe_crouched_offset_, kfe_crouched_offset_);
+        // ---- FINE NUOVO ----
+
+        // CALCOLO IK PER HOMING -  CALCOLA GIUNTI per homing
         // Front legs homing spline
         IK_RF(rf_hfe_hom_,rf_kfe_hom_,init_height_, DEF_X_FEET_DISPLACEMENT - init_x_displacement_);
-
-        // set spline parameters
+        rf_hfe_hom_ += hfe_crouched_offset_;
+        rf_kfe_hom_ -= kfe_crouched_offset_;
+        // set spline parameters cresa spline homing
         spline_front_par_[0] = (3.0 * rf_hfe_hom_) / (homing_dur_*homing_dur_); // a_2_hip
         spline_front_par_[1] = (-2.0 * rf_hfe_hom_ )/( homing_dur_*homing_dur_*homing_dur_); // a_3_hip
         spline_front_par_[2] = (3.0 * rf_kfe_hom_ )/ (homing_dur_*homing_dur_); // a_2_knee
@@ -81,7 +92,11 @@ namespace pi3hat_vel_controller
 
         // Hind legs homing spline
         IK_RF(rh_hfe_hom_,rh_kfe_hom_,init_height_, DEF_X_FEET_DISPLACEMENT + init_x_displacement_);
-
+        rh_hfe_hom_ += hfe_crouched_offset_;
+        rh_kfe_hom_ -= kfe_crouched_offset_;
+        RCLCPP_INFO(get_node()->get_logger(),
+                    "homing target dopo offset — rf_hfe=%.4f rf_kfe=%.4f  rh_hfe=%.4f rh_kfe=%.4f",
+                    rf_hfe_hom_, rf_kfe_hom_, rh_hfe_hom_, rh_kfe_hom_);
         // set spline parameters
         spline_hind_par_[0] = (3.0 * rh_hfe_hom_) / (homing_dur_*homing_dur_); // a_2_hip
         spline_hind_par_[1] = (-2.0 * rh_hfe_hom_ )/( homing_dur_*homing_dur_*homing_dur_); // a_3_hip
@@ -91,7 +106,7 @@ namespace pi3hat_vel_controller
         RCLCPP_INFO(get_node()->get_logger(),"the front spline vars are %f,%f and %f",spline_front_par_[1],spline_front_par_[0],(3.0 * RF_HFE_HOM) / (homing_dur_*homing_dur_));
         RCLCPP_INFO(get_node()->get_logger(),"the hind spline vars are %f,%f and %f",spline_hind_par_[1],spline_hind_par_[0],(3.0 * RF_HFE_HOM) / (homing_dur_*homing_dur_));
         
-        // fill the map structure 
+        // fill the map structure   - Map dei comandi
         sz = joints_.size();
         for(size_t i = 0; i < sz; i++)
         {
@@ -274,22 +289,62 @@ namespace pi3hat_vel_controller
 
             // add compute IK separated per LEG
             
-
-            if(i == LEG_IND::RH || i == LEG_IND::LH)
-            {
-                IK_RF(q_l[0],q_l[1],act_height_, DEF_X_FEET_DISPLACEMENT + init_x_displacement_);
-            }
-            else
-            {
-                IK_RF(q_l[0],q_l[1],act_height_, DEF_X_FEET_DISPLACEMENT - init_x_displacement_);
-            }
             
-            if(i == LEG_IND::RH || i == LEG_IND::LF)
-            {
-                q_l[0] *=-1;
+            // calcola IK per la gamba
+            if(i == LEG_IND::RH || i == LEG_IND::LH)
+                IK_RF(q_l[0], q_l[1], act_height_, DEF_X_FEET_DISPLACEMENT + init_x_displacement_);
+            else
+                IK_RF(q_l[0], q_l[1], act_height_, DEF_X_FEET_DISPLACEMENT - init_x_displacement_);
+
+            
+
+            // // ✅ 2. Applica offset rannicchiato (se non zero)
+            // q_l[0] += hfe_crouched_offset_;
+            // q_l[1] -= kfe_crouched_offset_;
+            // ✅ 2. Sottrai offset nello stesso modo di homing
+
+            // Nota: hfe_crouched_offset_ e kfe_crouched_offset_ possono essere 0, quindi non cambia nulla
+            if(i == LEG_IND::RF || i == LEG_IND::LF ){
+            // gambe "non invertite": sottrai offset normalmente
+              q_l[0] += hfe_crouched_offset_;
+              q_l[1] -= kfe_crouched_offset_;
+            } else { // RH, LF
+            // gambe invertite: inverti anche il segno dell'offset
+               q_l[0] += hfe_crouched_offset_;
+               q_l[1] -= kfe_crouched_offset_;
+            }
+            // ✅ 1. Applica simmetria per RH e LF
+            if(i == LEG_IND::RH || i == LEG_IND::LF) {
+                q_l[0] *= -1;
                 q_l[1] *= -1;
             }
+            // if(i == LEG_IND::RH || i == LEG_IND::LH)
+            // {
+            //     IK_RF(q_l[0],q_l[1],act_height_, DEF_X_FEET_DISPLACEMENT + init_x_displacement_);
+            // }
+            // else
+            // {
+            //     IK_RF(q_l[0],q_l[1],act_height_, DEF_X_FEET_DISPLACEMENT - init_x_displacement_);
+            // }
             
+            // // ---- NUOVO: sottrai offset rannicchiato ----
+            // // applica dopo i segni di simmetria, stessa logica di on_configure()
+            // // se hfe_crouched_offset_=0 e kfe_crouched_offset_=0 non cambia nulla
+
+
+            
+            // if(i == LEG_IND::RF || i == LEG_IND::LH)
+            // {
+            //     q_l[0] += hfe_crouched_offset_;
+            //     q_l[1] -= kfe_crouched_offset_;
+            // }
+            // else  // RH, LF
+            // {
+            //     q_l[0] -= hfe_crouched_offset_;
+            //     q_l[1] += kfe_crouched_offset_;
+            // }
+            // // ---- FINE NUOVO ----
+
             //insert the i-th leg joint velocity reference
             for (size_t j = 0; j < JNT_LEG_NUM; j++)
             {
@@ -423,6 +478,7 @@ namespace pi3hat_vel_controller
             q_dot_leg(1) *= -1.0;
             q_dot_leg(0) *= -1.0;
         }
+        
         q_dot_leg << 0.0,0.0;
     }
 
@@ -470,6 +526,28 @@ namespace pi3hat_vel_controller
         }
         else
         {
+            // Log per verifica offset / segni
+            double hip_spline_final, knee_spline_final;
+
+            // if(l_i == LEG_IND::RF || l_i == LEG_IND::LF)
+            // {
+            //     hip_spline_final  = spline_front_par_[1]*homing_dur_*homing_dur_*homing_dur_ + spline_front_par_[0]*homing_dur_*homing_dur_;
+            //     knee_spline_final = spline_front_par_[3]*homing_dur_*homing_dur_*homing_dur_ + spline_front_par_[2]*homing_dur_*homing_dur_;
+            // }
+            // else
+            // {
+            //     hip_spline_final  = spline_hind_par_[1]*homing_dur_*homing_dur_*homing_dur_ + spline_hind_par_[0]*homing_dur_*homing_dur_;
+            //     knee_spline_final = spline_hind_par_[3]*homing_dur_*homing_dur_*homing_dur_ + spline_hind_par_[2]*homing_dur_*homing_dur_;
+            // }
+
+            // RCLCPP_INFO(get_node()->get_logger(),
+            //             "LEG %d: final spline hip=%f knee=%f | *_hom_ hip=%f knee=%f",
+            //             l_i,
+            //             hip_spline_final, knee_spline_final,
+            //             (l_i==LEG_IND::RF ? rf_hfe_hom_ : (l_i==LEG_IND::LF ? rf_hfe_hom_ : (l_i==LEG_IND::RH ? rh_hfe_hom_ : rh_hfe_hom_))),
+            //             (l_i==LEG_IND::RF ? rf_kfe_hom_ : (l_i==LEG_IND::LF ? rf_kfe_hom_ : (l_i==LEG_IND::RH ? rh_kfe_hom_ : rh_kfe_hom_)))
+            // );
+
             if(l_i == LEG_IND::RF)
             {
                 position_cmd_[joints_[2*l_i]] = rf_hfe_hom_;
@@ -507,10 +585,30 @@ namespace pi3hat_vel_controller
             // {
             //     position_cmd_.at(joints_[i]) = 0.0;
             // }
+             // --- LOG leggibile aggiunto ---
+            const char* leg_names[] = {"LF", "RF", "LH", "RH"};
+            double final_hip = (l_i == LEG_IND::RH || l_i == LEG_IND::LF) ? -hip_val : hip_val;
+            double final_knee = (l_i == LEG_IND::RH || l_i == LEG_IND::LF) ? -knee_val : knee_val;
+
+            RCLCPP_INFO(get_node()->get_logger(),
+                "[HOMING COMPLETE] LEG %s: final spline hip=%.6f knee=%.6f | target homing hip=%.6f knee=%.6f",
+                leg_names[static_cast<int>(l_i)],
+                final_hip,
+                final_knee,
+                position_cmd_[joints_[2*l_i]],
+                position_cmd_[joints_[2*l_i+1]]
+            );
+
             
             state_ = Controller_State::ACTIVE;
+            // Log dei valori quando entriamo in ACTIVE
+            RCLCPP_INFO(get_node()->get_logger(), "[ACTIVE ENTER] LEG LF: hip=%f knee=%f | LEG RF: hip=%f knee=%f | LEG LH: hip=%f knee=%f | LEG RH: hip=%f knee=%f",
+                position_cmd_[joints_[2*LEG_IND::LF]], position_cmd_[joints_[2*LEG_IND::LF+1]],
+                position_cmd_[joints_[2*LEG_IND::RF]], position_cmd_[joints_[2*LEG_IND::RF+1]],
+                position_cmd_[joints_[2*LEG_IND::LH]], position_cmd_[joints_[2*LEG_IND::LH+1]],
+                position_cmd_[joints_[2*LEG_IND::RH]], position_cmd_[joints_[2*LEG_IND::RH+1]]);
 
-        }
+                    }
 
 
     }
