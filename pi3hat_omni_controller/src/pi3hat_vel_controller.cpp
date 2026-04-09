@@ -38,6 +38,7 @@ namespace pi3hat_vel_controller
             auto_declare<int>("feet_type",2);
             auto_declare<double>("hfe_crouched_offset", 0.0);
             auto_declare<double>("kfe_crouched_offset", 0.0);
+    
         }
          catch(const std::exception & e)
         {
@@ -67,6 +68,7 @@ namespace pi3hat_vel_controller
         min_height_ = get_node()->get_parameter("min_height").as_double();
         std::chrono::duration dur = std::chrono::milliseconds(get_node()->get_parameter("input_frequency").as_int());
         act_height_ = init_height_;
+        
         //get homing duration 
 
         homing_dur_ = get_node()->get_parameter("homing_duration").as_double();
@@ -121,6 +123,22 @@ namespace pi3hat_vel_controller
             kd_scale_cmd_.emplace(std::make_pair(joints_[i],1.0));
 
         }
+
+        // ── AGGIUNGI QUI ─────────────────────────────────────────────────────────
+        // Inizializza vel_target_rcvd_msg_ con valori sicuri.
+        // Se il joystick non ha ancora mandato nulla, get_target() leggerebbe
+        // 0.0 per kp/kd scale (default float64 ROS2), causando picchi di coppia
+        // alla prima iterazione ACTIVE.
+        vel_target_rcvd_msg_->v_x           = 0.0;
+        vel_target_rcvd_msg_->v_y           = 0.0;
+        vel_target_rcvd_msg_->omega         = 0.0;
+        vel_target_rcvd_msg_->height_rate   = 0.0;
+        vel_target_rcvd_msg_->kp_scale_leg   = 1.0;
+        vel_target_rcvd_msg_->kd_scale_leg   = 1.0;
+        vel_target_rcvd_msg_->kp_scale_wheel = 1.0;
+        vel_target_rcvd_msg_->kd_scale_wheel = 1.0;
+        // ── FINE AGGIUNTA ────────────────────────────────────────────────────────
+
         sub_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
         sub_qos.deadline();
         sub_opt.event_callbacks.deadline_callback = [&](rclcpp::QOSDeadlineRequestedInfo& event)->void
@@ -152,6 +170,10 @@ namespace pi3hat_vel_controller
                     vel_target_rcvd_msg_->set__omega(msg->omega);
                    // vel_target_rcvd_msg_->set__height_rate(0.0);
                     vel_target_rcvd_msg_->set__height_rate(msg->height_rate);
+                    vel_target_rcvd_msg_->set__kp_scale_leg(msg->kp_scale_leg);
+                    vel_target_rcvd_msg_->set__kd_scale_leg(msg->kd_scale_leg);
+                    vel_target_rcvd_msg_->set__kp_scale_wheel(msg->kp_scale_wheel);
+                    vel_target_rcvd_msg_->set__kd_scale_wheel(msg->kd_scale_wheel);
                 }
             }
         );
@@ -195,7 +217,10 @@ namespace pi3hat_vel_controller
         return CallbackReturn::SUCCESS;
     }
     
-    bool Pi3Hat_Vel_Controller::get_target(double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp)
+    // bool Pi3Hat_Vel_Controller::get_target(double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp)
+    bool Pi3Hat_Vel_Controller::get_target(
+    double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp,
+    double& kp_scale_leg, double& kd_scale_leg, double& kp_scale_wheel, double& kd_scale_wheel)
     { 
         // joints_rcvd_msg_ = *rt_buffer_.readFromRT();
 
@@ -210,10 +235,21 @@ namespace pi3hat_vel_controller
             v_y_tmp = vel_target_rcvd_msg_->v_y;
             omega_tmp = vel_target_rcvd_msg_->omega;
             height_rate_tmp = vel_target_rcvd_msg_->height_rate;
+            // se il publisher non setta i campi arrivano già a 1.0 (default .msg)
+            // come ulteriore guardia: se arrivano <=0 usiamo il default da parametro
+            kp_scale_leg    = vel_target_rcvd_msg_->kp_scale_leg;
+            kd_scale_leg    = vel_target_rcvd_msg_->kd_scale_leg;
+            kp_scale_wheel  = vel_target_rcvd_msg_->kp_scale_wheel;
+            kd_scale_wheel  = vel_target_rcvd_msg_->kd_scale_wheel;
         }
-        catch(const std::exception& e)
-        {
-            RCLCPP_ERROR( rclcpp::get_logger(logger_name_),"Raised error during the velocity targets assegnation %s", e.what());
+        // catch(const std::exception& e)
+        // {
+        //     RCLCPP_ERROR( rclcpp::get_logger(logger_name_),"Raised error during the velocity targets assegnation %s", e.what());
+        //     return false;
+        // }
+        catch(const std::exception& e) {
+            RCLCPP_ERROR(rclcpp::get_logger(logger_name_),
+                "Error in get_target: %s", e.what());
             return false;
         }
         return true;
@@ -231,7 +267,13 @@ namespace pi3hat_vel_controller
 	//RCLCPP_INFO(get_node()->get_logger(),"the act height is %f, the vel is %f and time is %f",act_height_,dh,dur);
     }
 
-    bool Pi3Hat_Vel_Controller::compute_reference(double v_x_tmp, double v_y_tmp, double omega_tmp, double height_rate_tmp, double dt)// add duration as argument [s]
+    // bool Pi3Hat_Vel_Controller::compute_reference(double v_x_tmp, double v_y_tmp, double omega_tmp, double height_rate_tmp, double dt)// add duration as argument [s]
+    bool Pi3Hat_Vel_Controller::compute_reference(
+        double v_x_tmp, double v_y_tmp, double omega_tmp,
+        double height_rate_tmp, double dt,
+        double kp_scale_leg, double kd_scale_leg,
+        double kp_scale_wheel, double kd_scale_wheel)// add duration as argument [s]
+    
     {   
         VectorXd v_base(3);
         VectorXd w_wheels(4);
@@ -250,6 +292,11 @@ namespace pi3hat_vel_controller
 
         //RCLCPP_INFO(get_node()->get_logger(),"the wheel is [%f,%f,%f,%f]",w_wheels[0],w_wheels[1],w_wheels[2],w_wheels[3]);
         //update wheels_velocity_cmd map, last four elements of the joint list
+
+        // ── CICLO 1: RUOTE ───────────────────────────────────────────────────────
+        // Itera sugli ultimi WHL_NUM elementi di joints_ (le 4 ruote mecanum).
+        // Calcola velocità angolare di ogni ruota dalla cinematica inversa
+        // e integra la posizione. Applica kp/kd scale delle RUOTE.
         for (size_t i = LEG_NUM * JNT_LEG_NUM; i < LEG_NUM * JNT_LEG_NUM + WHL_NUM; i++)
         {
             try
@@ -262,6 +309,9 @@ namespace pi3hat_vel_controller
                 #else
                     position_cmd_.at(joints_[i]) += dt* velocity_cmd_.at(joints_[i]);
                 #endif 
+                // kp/kd scale ruote: applicati qui dentro il ciclo ruote
+                kp_scale_cmd_.at(joints_[i]) = kp_scale_wheel;
+                kd_scale_cmd_.at(joints_[i]) = kd_scale_wheel;
             }
             catch(const std::exception& e)
             {
@@ -271,15 +321,30 @@ namespace pi3hat_vel_controller
         }
 
         std::vector<double> q_l = {0.0,0.0};
+
+        // ── CICLO 2: GAMBE ───────────────────────────────────────────────────────
+        // Itera sulle 4 gambe (RF, LF, RH, LH).
+        // Per ogni gamba:
+        //   - legge la posizione attuale dei giunti (HFE, KFE) da position_out_
+        //   - calcola la velocità di riferimento dei giunti (compute_leg_joints_vel_ref)
+        //   - calcola la posizione di riferimento tramite IK (IK_RF)
+        //   - applica simmetria di segno per gambe RH e LF
+        //   - scrive position_cmd_ e velocity_cmd_ per i 2 giunti della gamba
+        //   - applica kp/kd scale delle GAMBE
+
+
         for (auto &i:legs_)
         {   
             VectorXd q_leg(2), q_dot_leg(2);   //[ HFE, KFE]
 	        
             //extract the i-th leg joint position info
+            // ── CICLO 2a: lettura stato giunti della gamba i-esima ───────────────
+            // Scorre i JNT_LEG_NUM (=2) giunti della gamba: HFE e KFE
             for (size_t j = 0; j < JNT_LEG_NUM; j++)
             {
                 //RCLCPP_INFO(get_node()->get_logger(),"joint name is %s and its index is %ld",joints_[JNT_LEG_NUM*i + j].c_str(),JNT_LEG_NUM*i + j);
                 q_leg(j) = position_out_.at(joints_[JNT_LEG_NUM*i + j]) ; 
+                
                 // q_leg_cmd(j) = position_cmd_.at(joints_[JNT_LEG_NUM*i + j]);
 
             }  
@@ -290,7 +355,7 @@ namespace pi3hat_vel_controller
             // add compute IK separated per LEG
             
             
-            // calcola IK per la gamba
+            // IK: calcola posizione target per la gamba i-esima
             if(i == LEG_IND::RH || i == LEG_IND::LH)
                 IK_RF(q_l[0], q_l[1], act_height_, DEF_X_FEET_DISPLACEMENT + init_x_displacement_);
             else
@@ -345,6 +410,8 @@ namespace pi3hat_vel_controller
             // }
             // // ---- FINE NUOVO ----
 
+            // ── CICLO 2b: scrittura comandi giunti + kp/kd scale gamba i-esima ──
+            // Scorre i JNT_LEG_NUM (=2) giunti della gamba: HFE e KFE
             //insert the i-th leg joint velocity reference
             for (size_t j = 0; j < JNT_LEG_NUM; j++)
             {
@@ -353,6 +420,9 @@ namespace pi3hat_vel_controller
                     // add integration of pos with computed command vel, so we can send also position reference  
                     position_cmd_.at(joints_[JNT_LEG_NUM*i + j]) = q_l[j] ;
                     velocity_cmd_.at(joints_[JNT_LEG_NUM*i + j]) = q_dot_leg(j); 
+                    // kp/kd scale gambe: applicati qui dentro il ciclo giunti di ogni gamba
+                    kp_scale_cmd_.at(joints_[JNT_LEG_NUM * i + j]) = kp_scale_leg;
+                    kd_scale_cmd_.at(joints_[JNT_LEG_NUM * i + j]) = kd_scale_leg;
                 }
                 catch(const std::exception& e)
                 {
@@ -361,10 +431,29 @@ namespace pi3hat_vel_controller
                 }              
             }
         }
-        
+        // for (auto& leg : legs_) {
+        //     for (size_t j = 0; j < JNT_LEG_NUM; j++) {
+        //         kp_scale_cmd_.at(joints_[JNT_LEG_NUM * leg + j]) = kp_scale_leg;
+        //         kd_scale_cmd_.at(joints_[JNT_LEG_NUM * leg + j]) = kd_scale_leg;
+        //     }
+        // }
+        // for (size_t i = LEG_NUM * JNT_LEG_NUM;
+        //     i < LEG_NUM * JNT_LEG_NUM + WHL_NUM; i++) {
+        //     kp_scale_cmd_.at(joints_[i]) = kp_scale_wheel;
+        //     kd_scale_cmd_.at(joints_[i]) = kd_scale_wheel;
+        // }
+            // Decommentare Per leggere ongni 1 sec l'altezza attuale;NB più il valore è piccolo, più la base del robot si trova in alto
+            // rclcpp::Clock clock(RCL_SYSTEM_TIME);
 
-        return true;
-    }
+            // RCLCPP_INFO_THROTTLE(
+            //     rclcpp::get_logger("pi3hat_vel_controller"),
+            //     clock,
+            //     1000,
+            //     "act_height_: %f",
+            //     act_height_);
+            return true;
+                }
+
 
     void Pi3Hat_Vel_Controller::compute_mecanum_speed(VectorXd& v_base, VectorXd& w_mecanum)
     {
@@ -513,7 +602,8 @@ namespace pi3hat_vel_controller
                 position_cmd_[joints_[2*l_i+1]] = knee_val;
                 velocity_cmd_[joints_[2*l_i]] = d_hip_val;
                 velocity_cmd_[joints_[2*l_i+1]] = d_knee_val;
-                RCLCPP_INFO(get_node()->get_logger(),"the %d spline vars are %f and %f", l_i ,hip_val,knee_val);
+                //Decommentare per vedere l'andamento delle spline degli angoli durante homing
+                // RCLCPP_INFO(get_node()->get_logger(),"the %d spline vars are %f and %f", l_i ,hip_val,knee_val);
             }      
             if(l_i == LEG_IND::RH || l_i == LEG_IND::LF )
             {
@@ -521,7 +611,8 @@ namespace pi3hat_vel_controller
                 position_cmd_[joints_[2*l_i+1]] = - knee_val;
                 velocity_cmd_[joints_[2*l_i]] = - d_hip_val;
                 velocity_cmd_[joints_[2*l_i+1]] = - d_knee_val;
-                RCLCPP_INFO(get_node()->get_logger(),"the %d spline vars are %f and %f", l_i ,-hip_val,-knee_val);
+                //Decommentare per vedere l'andamento delle spline degli angoli durante homing
+                // RCLCPP_INFO(get_node()->get_logger(),"the %d spline vars are %f and %f", l_i ,-hip_val,-knee_val);
             }
         }
         else
@@ -674,10 +765,15 @@ namespace pi3hat_vel_controller
                 
                 break;
             case Controller_State::ACTIVE:
-                //get the velocity target from the specific topic
-                get_target(v_x, v_y, omega, height_rate);  
-                //compute the joints reference from velocity target
-                compute_reference(v_x, v_y, omega, height_rate, deltaT);
+                // //get the velocity target from the specific topic
+                // get_target(v_x, v_y, omega, height_rate);  
+                // //compute the joints reference from velocity target
+                // compute_reference(v_x, v_y, omega, height_rate, deltaT);
+                double kp_scale_leg, kd_scale_leg, kp_scale_wheel, kd_scale_wheel;
+                get_target(v_x, v_y, omega, height_rate,
+                        kp_scale_leg, kd_scale_leg, kp_scale_wheel, kd_scale_wheel);
+                compute_reference(v_x, v_y, omega, height_rate, deltaT,
+                                kp_scale_leg, kd_scale_leg, kp_scale_wheel, kd_scale_wheel);
                 break;
             default:
                 break;

@@ -75,10 +75,19 @@ namespace pi3hat_vel_controller
                 const rclcpp::Time & time, const rclcpp::Duration & period
             ) override;
 
-            bool get_target(double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp);
+            // bool get_target(double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp);
 
-            bool compute_reference(double v_x_tmp, double v_y_tmp, double omega_tmp, double height_rate_tmp, double dt);
+            // bool compute_reference(double v_x_tmp, double v_y_tmp, double omega_tmp, double height_rate_tmp, double dt);
 
+            bool get_target(double& v_x_tmp, double& v_y_tmp, double& omega_tmp, double& height_rate_tmp,
+                            double& kp_scale_leg, double& kd_scale_leg,
+                            double& kp_scale_wheel, double& kd_scale_wheel);
+
+            bool compute_reference(double v_x_tmp, double v_y_tmp, double omega_tmp,
+                                double height_rate_tmp, double dt,
+                                double kp_scale_leg, double kd_scale_leg,
+                                double kp_scale_wheel, double kd_scale_wheel);
+                                
             void compute_mecanum_speed(VectorXd& v_base, VectorXd& w_mecanum);
 
             void compute_truck_speed(VectorXd& v_base, VectorXd& w_truck);
@@ -155,6 +164,7 @@ namespace pi3hat_vel_controller
             double init_x_displacement_,init_height_,min_height_,max_height_, act_height_,rf_hfe_hom_,rf_kfe_hom_,rh_hfe_hom_,rh_kfe_hom_;
             double hfe_crouched_offset_;  // offset hip
             double kfe_crouched_offset_;  // offset knee
+            
     };
 };
 
